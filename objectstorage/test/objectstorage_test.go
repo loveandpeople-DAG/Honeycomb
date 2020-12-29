@@ -1,6 +1,7 @@
 package test
 
 import (
+	"encoding/binary"
 	"errors"
 	"fmt"
 	"io/ioutil"
@@ -15,19 +16,20 @@ import (
 	"github.com/loveandpeople-DAG/goHive/kvstore/badger"
 	"github.com/loveandpeople-DAG/goHive/kvstore/bolt"
 	"github.com/loveandpeople-DAG/goHive/kvstore/mapdb"
+	"github.com/loveandpeople-DAG/goHive/kvstore/pebble"
 	"github.com/loveandpeople-DAG/goHive/objectstorage"
 	"github.com/loveandpeople-DAG/goHive/testutil"
 	"github.com/loveandpeople-DAG/goHive/types"
 	"github.com/loveandpeople-DAG/goHive/typeutils"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"go.etcd.io/bbolt"
 )
 
 const (
 	dbBadger = iota
 	dbBolt
 	dbMapDB
+	dbPebble
 )
 
 const (
@@ -37,29 +39,35 @@ const (
 func testStorage(t require.TestingT, realm []byte) kvstore.KVStore {
 	switch usedDatabase {
 	case dbBadger:
-		dir, err := ioutil.TempDir("", "objectsdb")
+		dir, err := ioutil.TempDir("", "database.badger")
 		require.NoError(t, err)
 		db, err := badger.CreateDB(dir)
 		require.NoError(t, err)
 		return badger.New(db).WithRealm(realm)
 
 	case dbBolt:
-		dir, err := ioutil.TempDir("", "bboltdb")
+		dir, err := ioutil.TempDir("", "database.bolt")
 		require.NoError(t, err)
-		dirAndFile := fmt.Sprintf("%s/my.db", dir)
-		db, err := bbolt.Open(dirAndFile, 0666, nil)
+		db, err := bolt.CreateDB(dir, "my.db", nil)
 		require.NoError(t, err)
 		return bolt.New(db).WithRealm(realm)
 
 	case dbMapDB:
 		return mapdb.NewMapDB().WithRealm(realm)
+
+	case dbPebble:
+		dir, err := ioutil.TempDir("", "database.pebble")
+		require.NoError(t, err)
+		db, err := pebble.CreateDB(dir)
+		require.NoError(t, err)
+		return pebble.New(db).WithRealm(realm)
 	}
 
 	panic("unknown database")
 }
 
-func testObjectFactory(key []byte) (objectstorage.StorableObject, int, error) {
-	return &testObject{id: key}, len(key), nil
+func testObjectFactory(key []byte, data []byte) (objectstorage.StorableObject, error) {
+	return &testObject{id: key, value: binary.LittleEndian.Uint32(data)}, nil
 }
 
 // TestConcurrentCreateDelete tests if ConsumeIfAbsent and Store can be used in parallel without breaking the
